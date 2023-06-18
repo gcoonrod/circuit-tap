@@ -19,6 +19,7 @@ fp-info-cache
 
 # Netlist files (exported from Eeschema)
 *.net
+*.ipc
 
 # Autorouter files (exported from Pcbnew)
 *.dsn
@@ -27,3 +28,6 @@ fp-info-cache
 # Exported BOM files
 *.xml
 *.csv
+
+# Production Files
+production/*

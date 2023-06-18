@@ -1,0 +1,7 @@
+{
+    "sketch": "firmware\\circuit-tap\\circuit-tap.ino",
+    "configuration": "pinout=40pin_standard,eeprom=keep,resetpin=reset,BOD=2v6,clock=external_20MHz,bootloader=uart1_default",
+    "board": "MegaCoreX:megaavr:4809",
+    "programmer": "serialupdi_115200",
+    "port": "COM8"
+}
