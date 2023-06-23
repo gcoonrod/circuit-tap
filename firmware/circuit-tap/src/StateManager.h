@@ -1,11 +1,11 @@
 // Copyright 2023 Greg Coonrod
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,7 +18,7 @@
 #include <Arduino.h>
 #include "./FSM.h"
 
-class StateManager: public Printable
+class StateManager : public Printable
 {
 public:
     StateManager()
@@ -30,8 +30,8 @@ public:
 
     StateManager(FSM::ArmState armState, FSM::ClkModeState clkModeState)
     {
-        _currentState = FSM(armState, clkModeState);
-        _nextState = FSM(armState, clkModeState);
+        _currentState = FSM();
+        _nextState = FSM();
         _isDirty = false;
     };
 
@@ -47,6 +47,18 @@ public:
         _isDirty = true;
     };
 
+    void setRunState(FSM::RunState runState)
+    {
+        _nextState.setRunState(runState);
+        _isDirty = true;
+    };
+
+    void setErrorState(bool errorState)
+    {
+        _nextState.setErrorState(errorState);
+        _isDirty = true;
+    };
+
     FSM::ArmState getArmState()
     {
         return _currentState.getArmState();
@@ -57,15 +69,25 @@ public:
         return _currentState.getClkModeState();
     };
 
-    void toggleArmState() 
+    FSM::RunState getRunState()
     {
-        if (_currentState.getArmState() == FSM::ArmState::ARMED)
+        return _currentState.getRunState();
+    };
+
+    bool getErrorState()
+    {
+        return _currentState.getErrorState();
+    };
+
+    void toggleArmState()
+    {
+        if (_currentState.getArmState() == FSM::ArmState::Armed)
         {
-            _nextState.setArmState(FSM::ArmState::DISARMED);
+            _nextState.setArmState(FSM::ArmState::Disarmed);
         }
         else
         {
-            _nextState.setArmState(FSM::ArmState::ARMED);
+            _nextState.setArmState(FSM::ArmState::Armed);
         }
         _isDirty = true;
     };
@@ -76,13 +98,13 @@ public:
         switch (clkModeState)
         {
         case FSM::ClkModeState::Output:
-            _nextState.setClkModeState(FSM::ClkModeState::Input);
-            break;
-        case FSM::ClkModeState::Input:
             _nextState.setClkModeState(FSM::ClkModeState::HighZ);
             break;
-        case FSM::ClkModeState::HighZ:
+        case FSM::ClkModeState::Input:
             _nextState.setClkModeState(FSM::ClkModeState::Output);
+            break;
+        case FSM::ClkModeState::HighZ:
+            _nextState.setClkModeState(FSM::ClkModeState::Input);
             break;
         }
         _isDirty = true;
@@ -102,7 +124,7 @@ public:
         return _isDirty;
     };
 
-    size_t printTo(Print& p) const
+    size_t printTo(Print &p) const
     {
         size_t size = 0;
         size += p.print(F("Current State: "));

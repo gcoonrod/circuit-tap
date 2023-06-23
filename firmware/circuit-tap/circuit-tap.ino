@@ -11,13 +11,18 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+#define F_CPU 20000000UL
+#define __DEBUG__
+
+// Library and System Includes
 #include <Arduino.h>
 #include <avr/io.h>
-#define F_CPU 20000000UL
+#include <SPI.h>
+#include <SD.h>
 
-#include "./CircuitTap.h"
-
-#define __DEBUG__
+// Local Includes
+#include "src/CircuitTap.h"
 
 // Circuit Tap
 
@@ -39,20 +44,6 @@
 #define HSIO_PIN PORTD.PIN
 #define HSIO_MASK 0b00000000
 
-// Shift Register Inputs (SRI) Control Pins
-#define SRI_CEB PIN_PE1   // Active Low
-#define SRI_LOADB PIN_PE2 // Active Low
-#define SRI_CLK PIN_PE3
-
-// Shift Register Inputs (SRI) Data Pins Port F [0..5]
-// Uses the native AVR port registers for speed
-// PF6 reserved for RESETB
-// All pins are input only
-#define SRI_DATA PORTF
-#define SRI_DATA_DDR PORTF.DIR
-#define SRI_DATA_PIN PORTF.PIN
-#define SRI_DATA_MASK 0b0000000
-
 // SPI Pins and Selects
 // Primarily intended for SD card use
 #define SPI_MOSI PIN_SPI_MOSI
@@ -72,13 +63,11 @@
 #define USB_RDY PIN_PE0
 
 // Global Variables/State
-volatile uint8_t STARTED = 0;
-volatile uint8_t USB_RDY_STATE = 0;
-volatile uint8_t CLK_MODE = 0;
-volatile uint8_t ARMED = 0;
+
 
 // Global FSM
-StateManager manager;
+static StateManager manager;
+SRPortManager srPort;
 
 // LEDs Setup
 void setup_leds()
@@ -102,20 +91,6 @@ void setup_hsio_port(uint8_t bitmask)
     HSIO_DDR = bitmask;
 }
 
-// SR Input Port Setup
-void setup_sri_port(uint8_t bitmask)
-{
-    SRI_DATA_DDR = bitmask;
-}
-
-// SR Input Ctrl Setup
-void setup_sri_ctrl()
-{
-    pinMode(SRI_CEB, OUTPUT);
-    pinMode(SRI_LOADB, OUTPUT);
-    pinMode(SRI_CLK, OUTPUT);
-}
-
 // SPI Setup
 void setup_spi()
 {
@@ -137,20 +112,149 @@ void setup_usb_rdy()
 // DUT Clock Setup
 void setup_dut_clk()
 {
-    pinMode(DUT_CLK, OUTPUT);
+    pinMode(DUT_CLK, INPUT);
+}
+
+// Setup SD Card
+void setup_sd()
+{
+    // Setup SPI
+    setup_spi();
+
+    // Setup SD Card
+    if (!SD.begin(SPI_CS))
+    {
+        Serial1.println("SD Card failed to initialize");
+        manager.setErrorState(true);
+    }
+    Serial1.println("SD Card initialized");
 }
 
 // Button ISRs
 void btn_arm_isr()
 {
     Serial1.println("ARM Button Pressed");
-    manager.toggleArmState();
+    if (manager.getArmState() == FSM::ArmState::Disarmed)
+    {
+        // If Disarmed and Running, End
+        if (manager.getRunState() == FSM::RunState::Running)
+        {
+            manager.setRunState(FSM::RunState::Ended);
+        }
+        else if (manager.getRunState() == FSM::RunState::Ended)
+        {
+            manager.setRunState(FSM::RunState::Stopped);
+        }
+        else
+        {
+            manager.setArmState(FSM::ArmState::Armed);
+        }
+    }
+    else
+    {
+        manager.setArmState(FSM::ArmState::Disarmed);
+    }
 }
 
 void btn_mode_isr()
 {
     Serial1.println("MODE Button Pressed");
     manager.cycleClkModeState();
+}
+
+// DUT Clock ISR
+void dut_clk_isr()
+{
+
+    // If armed, start running and disarm
+    if (manager.getArmState() == FSM::ArmState::Armed)
+    {
+        Serial1.println(F("Run started by DUT Clock Interrupt"));
+        manager.setRunState(FSM::RunState::Running);
+        manager.setArmState(FSM::ArmState::Disarmed);
+    }
+
+    // If running, trigger SR latch and shift in data
+    if (manager.getRunState() == FSM::RunState::Running)
+    {
+        Serial1.println(F("Placeholder for SR Latch Trigger"));
+        // TODO Trigger SR Latch and Shift in Data
+        // TODO if ISR is triggered before Shift in is complete set Error state and end run
+    }
+
+    // If ended or stopped do nothing
+    if (manager.getRunState() == FSM::RunState::Ended || manager.getRunState() == FSM::RunState::Stopped)
+    {
+#ifdef __DEBUG__
+        Serial1.println(F("DUT Clock ISR while Stopped or Ended"));
+#endif
+        return;
+    }
+}
+
+// LED Update
+void updateLEDs(StateManager *manager)
+{
+    // Update ARM LED
+    digitalWrite(T_ARM, manager->getArmState() == FSM::ArmState::Armed ? 1 : 0);
+
+    // Update RUN and END LEDs
+    switch (manager->getRunState())
+    {
+    case FSM::RunState::Running:
+        digitalWrite(T_RUN, 1);
+        digitalWrite(T_END, 0);
+        break;
+    case FSM::RunState::Stopped:
+        digitalWrite(T_RUN, 0);
+        digitalWrite(T_END, 0);
+        break;
+    case FSM::RunState::Ended:
+        digitalWrite(T_RUN, 0);
+        digitalWrite(T_END, 1);
+        break;
+    }
+
+    // Update ERR LED
+    digitalWrite(T_ERR, manager->getErrorState() ? 1 : 0);
+}
+
+// DUT Clock Update
+void updateDUTClk(StateManager *manager)
+{
+    // Do nothing if RunState is Running
+    if (manager->getRunState() == FSM::RunState::Running)
+    {
+        // A test is running, do not make any changes to
+        return;
+    }
+
+    // Update DUT Clock
+    switch (manager->getClkModeState())
+    {
+        // Output Mode, Disable DUT Clock Interrupt
+    case FSM::ClkModeState::Output:
+        detachInterrupt(DUT_CLK);
+        pinMode(DUT_CLK, OUTPUT);
+        break;
+        // Input Mode, Enable DUT Clock Interrupt if Armed
+    case FSM::ClkModeState::Input:
+        if (manager->getArmState() == FSM::ArmState::Armed)
+        {
+            attachInterrupt(DUT_CLK, dut_clk_isr, FALLING);
+        }
+        else
+        {
+            detachInterrupt(DUT_CLK);
+        }
+        pinMode(DUT_CLK, INPUT_PULLUP);
+        break;
+        // HighZ Mode, Disable DUT Clock Interrupt
+    case FSM::ClkModeState::HighZ:
+        detachInterrupt(DUT_CLK);
+        pinMode(DUT_CLK, INPUT);
+        break;
+    }
 }
 
 // Arduino Functions
@@ -160,6 +264,10 @@ void setup()
     // Setup State Manager
     manager = StateManager();
 
+    // Setup SR Port Manager
+    srPort = SRPortManager();
+    srPort.begin();
+
     // Setup LEDs
     setup_leds();
 
@@ -168,12 +276,6 @@ void setup()
 
     // Setup HSIO Port
     setup_hsio_port(HSIO_MASK);
-
-    // Setup SR Input Port
-    setup_sri_port(SRI_DATA_MASK);
-
-    // Setup SR Input Ctrl
-    setup_sri_ctrl();
 
     // Setup SPI
     setup_spi();
@@ -194,26 +296,18 @@ void setup()
 
 void loop()
 {
-    // Check system state
-    if (STARTED == 0)
-    {
-        // Check USB Ready
-        // USBCFG on MCP2221A doesn't behave as expected
-        // Ignore for now
-    }
+    // Update LEDs based on current state
+    updateLEDs(&manager);
 
-    // Set STARTED
-    STARTED = 1;
-
-    // Check ARMED State
-    digitalWrite(T_ARM, ARMED);
+    // Update DUT clock based on current state
+    updateDUTClk(&manager);
 
 #ifdef __DEBUG__
     // Print Current State from State Manager to Serial
-    if (manager.isDirty()) {
+    if (manager.isDirty())
+    {
         Serial1.println(manager);
     }
-    
 #endif
 
     // Update State Manager

@@ -20,21 +20,31 @@ class FSM: public Printable
 public:
     enum class ArmState : uint8_t
     {
-        ARMED = 0,
-        DISARMED = 1
+        Disarmed = 0,
+        Armed = 1
     };
 
     enum class ClkModeState : uint8_t
     {
-        Output = 0,
+        HighZ = 0,
         Input = 1,
-        HighZ = 2
+        Output = 2
     };
 
-    FSM(ArmState armState = ArmState::DISARMED, ClkModeState clkModeState = ClkModeState::HighZ)
+    enum class RunState : uint8_t
     {
-        _armState = armState;
-        _clkModeState = clkModeState;
+        Stopped = 0,
+        Running = 1, 
+        Ended = 2
+    };
+
+    FSM()
+    {
+        _armState = ArmState::Disarmed;
+        _clkModeState = ClkModeState::HighZ;
+        _runState = RunState::Stopped;
+        _errorState = false;
+
     }
 
     void setArmState(ArmState armState)
@@ -47,6 +57,16 @@ public:
         _clkModeState = clkModeState;
     }
 
+    void setRunState(RunState runState)
+    {
+        _runState = runState;
+    }
+
+    void setErrorState(bool errorState)
+    {
+        _errorState = errorState;
+    }
+
     ArmState getArmState()
     {
         return _armState;
@@ -57,9 +77,22 @@ public:
         return _clkModeState;
     }
 
+    RunState getRunState()
+    {
+        return _runState;
+    }
+
+    bool getErrorState()
+    {
+        return _errorState;
+    }
+
     bool isEqualTo(const FSM &other)
     {
-        return _armState == other._armState && _clkModeState == other._clkModeState;
+        return (_armState == other._armState) &&
+               (_clkModeState == other._clkModeState) &&
+               (_runState == other._runState) &&
+               (_errorState == other._errorState);
     }
 
     size_t printTo(Print &p) const
@@ -69,6 +102,8 @@ public:
         size += p.print((uint8_t)_armState);
         size += p.print(F(" ClkModeState: "));
         size += p.print((uint8_t)_clkModeState);
+        size += p.print(F(" RunState: "));
+        size += p.print((uint8_t)_runState);
         return size;
     }
 
@@ -76,6 +111,8 @@ public:
 private:
     ArmState _armState;
     ClkModeState _clkModeState;
+    RunState _runState;
+    bool _errorState;
 };
 
 #endif

@@ -2,12 +2,15 @@
     "cSpell.words": [
         "DDRD",
         "DDRF",
+        "DIRCLR",
         "HSIO",
         "LOADB",
         "MOSI",
+        "OUTCLR",
         "PIND",
         "PORTD",
         "PORTF",
         "RESETB"
-    ]
+    ],
+    "arduino.disableIntelliSenseAutoGen": false
 }

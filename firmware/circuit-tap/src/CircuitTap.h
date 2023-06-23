@@ -14,7 +14,8 @@
 
 #ifndef __CircuitTAP__
 #define __CircuitTAP__
-#include "./lib/FSM.h"
-#include "./lib/StateManager.h"
+#include "./FSM.h"
+#include "./StateManager.h"
+#include "./SRPortManager.h"
 
 #endif
